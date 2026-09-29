@@ -347,6 +347,13 @@ if(BUILD_TESTING)
     ${PROJECT_NAME}_core
   )
 
+  ament_add_gtest(test_twist_stopped_assertion
+    test/assertions/test_twist_stopped_assertion.cpp
+  )
+  target_link_libraries(test_twist_stopped_assertion
+    ${PROJECT_NAME}_core
+  )
+
   ament_add_gtest(test_scenario_monitor
     test/assertions/test_scenario_monitor.cpp
   )
