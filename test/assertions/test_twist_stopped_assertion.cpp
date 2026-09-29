@@ -28,7 +28,8 @@ AssertionConfig make_twist_stopped_assertion()
   config.trigger_within = 2.0;
   config.within = 0.5;
   config.duration = 0.5;
-  config.tolerance = 0.01;
+  config.linear_tolerance = 0.01;
+  config.angular_tolerance = 0.01;
   config.max_gap = 0.2;
   return config;
 }
@@ -57,7 +58,7 @@ msg::FaultEvent activate_fault()
 TEST(TwistStoppedAssertion, StartsPending)
 {
   const auto config = make_twist_stopped_assertion();
-  TwistStoppedAssertion assertion(config);
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
 
   EXPECT_EQ(assertion.result().state, AssertionState::Pending);
 }
@@ -65,34 +66,65 @@ TEST(TwistStoppedAssertion, StartsPending)
 TEST(TwistStoppedAssertion, PassesAfterZeroCommandIsHeldForDuration)
 {
   const auto config = make_twist_stopped_assertion();
-  TwistStoppedAssertion assertion(config);
-  assertion.observe_message(moving_command(), rclcpp::Time(0, 0), 0.0);
-  assertion.observe_fault_event(activate_fault(), 0.1);
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
 
-  assertion.observe_message(stopped_command(), rclcpp::Time(0, 100000000), 0.1);
-  assertion.observe_message(stopped_command(), rclcpp::Time(0, 300000000), 0.3);
-  assertion.observe_message(stopped_command(), rclcpp::Time(0, 600000000), 0.6);
-  assertion.update(0.7, rclcpp::Time(0, 700000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 200000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 400000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 600000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 700000000));
+  assertion.update(rclcpp::Time(0, 710000000));
 
   EXPECT_EQ(assertion.result().state, AssertionState::Passed);
 }
 
-TEST(TwistStoppedAssertion, FailsIfFaultActivatesBeforeAnyMotionWasObserved)
+TEST(TwistStoppedAssertion, AppliesSeparateLinearAndAngularTolerancesToEveryAxis)
 {
   const auto config = make_twist_stopped_assertion();
-  TwistStoppedAssertion assertion(config);
-  assertion.observe_fault_event(activate_fault(), 0.1);
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
 
-  EXPECT_EQ(assertion.result().state, AssertionState::Failed);
+  geometry_msgs::msg::Twist within_tolerance;
+  within_tolerance.linear.x = 0.005;
+  within_tolerance.linear.y = 0.005;
+  within_tolerance.linear.z = 0.005;
+  within_tolerance.angular.x = 0.005;
+  within_tolerance.angular.y = 0.005;
+  within_tolerance.angular.z = 0.005;
+  assertion.observe_message(within_tolerance, rclcpp::Time(0, 200000000));
+  assertion.observe_message(within_tolerance, rclcpp::Time(0, 350000000));
+  assertion.observe_message(within_tolerance, rclcpp::Time(0, 500000000));
+  assertion.observe_message(within_tolerance, rclcpp::Time(0, 650000000));
+  assertion.observe_message(within_tolerance, rclcpp::Time(0, 700000000));
+  assertion.update(rclcpp::Time(0, 710000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Passed);
+}
+
+TEST(TwistStoppedAssertion, PassesWhenTheCommandStreamIsAlreadyZeroAtFaultActivation)
+{
+  const auto config = make_twist_stopped_assertion();
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 200000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 350000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 500000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 650000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 700000000));
+  assertion.update(rclcpp::Time(0, 710000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Passed);
 }
 
 TEST(TwistStoppedAssertion, FailsWhenNoZeroCommandArrivesBeforeDeadline)
 {
   const auto config = make_twist_stopped_assertion();
-  TwistStoppedAssertion assertion(config);
-  assertion.observe_message(moving_command(), rclcpp::Time(0, 0), 0.0);
-  assertion.observe_fault_event(activate_fault(), 0.1);
-  assertion.update(0.61, rclcpp::Time(0, 610000000));
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
+  assertion.update(rclcpp::Time(0, 610000000));
 
   EXPECT_EQ(assertion.result().state, AssertionState::Failed);
 }
@@ -100,11 +132,11 @@ TEST(TwistStoppedAssertion, FailsWhenNoZeroCommandArrivesBeforeDeadline)
 TEST(TwistStoppedAssertion, FailsIfMotionResumesDuringHold)
 {
   const auto config = make_twist_stopped_assertion();
-  TwistStoppedAssertion assertion(config);
-  assertion.observe_message(moving_command(), rclcpp::Time(0, 0), 0.0);
-  assertion.observe_fault_event(activate_fault(), 0.1);
-  assertion.observe_message(stopped_command(), rclcpp::Time(0, 200000000), 0.2);
-  assertion.observe_message(moving_command(), rclcpp::Time(0, 300000000), 0.3);
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 200000000));
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 300000000));
 
   EXPECT_EQ(assertion.result().state, AssertionState::Failed);
 }
@@ -113,11 +145,11 @@ TEST(TwistStoppedAssertion, FailsWhenZeroCommandsStopArrivingDuringHold)
 {
   auto config = make_twist_stopped_assertion();
   config.duration = 1.0;
-  TwistStoppedAssertion assertion(config);
-  assertion.observe_message(moving_command(), rclcpp::Time(0, 0), 0.0);
-  assertion.observe_fault_event(activate_fault(), 0.1);
-  assertion.observe_message(stopped_command(), rclcpp::Time(0, 200000000), 0.2);
-  assertion.update(0.41, rclcpp::Time(0, 410000000));
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 200000000));
+  assertion.update(rclcpp::Time(0, 410000000));
 
   EXPECT_EQ(assertion.result().state, AssertionState::Failed);
 }
@@ -125,12 +157,12 @@ TEST(TwistStoppedAssertion, FailsWhenZeroCommandsStopArrivingDuringHold)
 TEST(TwistStoppedAssertion, FailsOnNonFiniteVelocityAfterFaultActivation)
 {
   const auto config = make_twist_stopped_assertion();
-  TwistStoppedAssertion assertion(config);
-  assertion.observe_message(moving_command(), rclcpp::Time(0, 0), 0.0);
-  assertion.observe_fault_event(activate_fault(), 0.1);
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
   auto invalid = stopped_command();
   invalid.linear.x = std::numeric_limits<double>::quiet_NaN();
-  assertion.observe_message(invalid, rclcpp::Time(0, 200000000), 0.2);
+  assertion.observe_message(invalid, rclcpp::Time(0, 200000000));
 
   EXPECT_EQ(assertion.result().state, AssertionState::Failed);
 }
@@ -138,8 +170,18 @@ TEST(TwistStoppedAssertion, FailsOnNonFiniteVelocityAfterFaultActivation)
 TEST(TwistStoppedAssertion, FailsWhenTheFaultDoesNotActivateBeforeDeadline)
 {
   const auto config = make_twist_stopped_assertion();
-  TwistStoppedAssertion assertion(config);
-  assertion.update(2.1, rclcpp::Time(2, 100000000));
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.update(rclcpp::Time(2, 100000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Failed);
+}
+
+TEST(TwistStoppedAssertion, FailsWhenTheFaultEventStampIsAfterTriggerDeadline)
+{
+  auto config = make_twist_stopped_assertion();
+  config.trigger_within = 0.5;
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 600000000));
 
   EXPECT_EQ(assertion.result().state, AssertionState::Failed);
 }

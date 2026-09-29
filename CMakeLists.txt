@@ -81,6 +81,7 @@ add_library(${PROJECT_NAME}_core
   src/assertions/fault_assertion_runner.cpp
   src/assertions/fault_event_assertion.cpp
   src/assertions/topic_hz_assertion.cpp
+  src/assertions/twist_stopped_assertion.cpp
   src/assertions/scenario_monitor.cpp
   src/core/fault_scenario_runner.cpp
 )
