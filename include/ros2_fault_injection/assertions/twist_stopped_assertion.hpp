@@ -9,6 +9,8 @@
 
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "geometry_msgs/msg/twist.hpp"
 #include "rclcpp/time.hpp"
@@ -42,6 +44,7 @@ private:
   std::optional<rclcpp::Time> fault_activation_stamp_;
   std::optional<rclcpp::Time> first_zero_stamp_;
   std::optional<rclcpp::Time> last_zero_stamp_;
+  std::vector<std::pair<geometry_msgs::msg::Twist, rclcpp::Time>> pending_messages_;
 };
 }  // namespace ros2_fault_injection::assertions
 

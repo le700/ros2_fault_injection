@@ -4,6 +4,7 @@
 // license that can be found in the LICENSE file or at
 // https://opensource.org/licenses/MIT.
 
+#include <cstddef>
 #include <limits>
 
 #include <gtest/gtest.h>
@@ -118,6 +119,30 @@ TEST(TwistStoppedAssertion, PassesWhenTheCommandStreamIsAlreadyZeroAtFaultActiva
   EXPECT_EQ(assertion.result().state, AssertionState::Passed);
 }
 
+TEST(TwistStoppedAssertion, DoesNotCountZeroCommandsObservedBeforeFaultActivation)
+{
+  auto config = make_twist_stopped_assertion();
+  config.trigger_within = 0.5;
+  config.within = 0.5;
+  config.duration = 0.6;
+  config.max_gap = 0.5;
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 0));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 200000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 350000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 500000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 650000000));
+  assertion.update(rclcpp::Time(0, 700000000));
+
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
+  assertion.update(rclcpp::Time(0, 700000000));
+  EXPECT_EQ(assertion.result().state, AssertionState::Pending);
+
+  assertion.update(rclcpp::Time(0, 810000000));
+  EXPECT_EQ(assertion.result().state, AssertionState::Passed);
+}
+
 TEST(TwistStoppedAssertion, FailsWhenNoZeroCommandArrivesBeforeDeadline)
 {
   const auto config = make_twist_stopped_assertion();
@@ -173,7 +198,62 @@ TEST(TwistStoppedAssertion, FailsWhenTheFaultDoesNotActivateBeforeDeadline)
   TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
   assertion.update(rclcpp::Time(2, 100000000));
 
+  EXPECT_EQ(assertion.result().state, AssertionState::Pending);
+
+  assertion.update(rclcpp::Time(2, 600000000));
+
   EXPECT_EQ(assertion.result().state, AssertionState::Failed);
+}
+
+TEST(TwistStoppedAssertion, FailsWhenCombinedDeadlineIsNotFinite)
+{
+  auto config = make_twist_stopped_assertion();
+  config.trigger_within = std::numeric_limits<double>::max();
+  config.within = std::numeric_limits<double>::max();
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+
+  assertion.update(rclcpp::Time(1, 0));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Failed);
+  EXPECT_NE(assertion.result().message.find("finite sum"), std::string::npos);
+}
+
+TEST(TwistStoppedAssertion, AcceptsTimelyActivationEventDeliveredAfterTriggerDeadline)
+{
+  auto config = make_twist_stopped_assertion();
+  config.trigger_within = 0.5;
+  config.within = 1.0;
+  config.duration = 0.3;
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+
+  // The event callback can be processed after trigger_within even though the
+  // event's source timestamp proves the fault activated on time. Command
+  // callbacks after activation can also be processed before the event callback.
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 300000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 450000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 600000000));
+  assertion.update(rclcpp::Time(0, 700000000));
+  EXPECT_EQ(assertion.result().state, AssertionState::Pending);
+
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
+  assertion.update(rclcpp::Time(0, 710000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Passed);
+}
+
+TEST(TwistStoppedAssertion, FailsClosedWhenPendingMessageLimitIsExceeded)
+{
+  const auto config = make_twist_stopped_assertion();
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+
+  for (std::size_t index = 0; index < 20000 &&
+    assertion.result().state == AssertionState::Pending; ++index)
+  {
+    assertion.observe_message(moving_command(), rclcpp::Time(0, 0));
+  }
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Failed);
+  EXPECT_NE(assertion.result().message.find("cannot safely verify"), std::string::npos);
 }
 
 TEST(TwistStoppedAssertion, FailsWhenTheFaultEventStampIsAfterTriggerDeadline)

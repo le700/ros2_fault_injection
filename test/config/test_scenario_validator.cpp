@@ -7,6 +7,7 @@
 #include "ros2_fault_injection/config/scenario_validator.hpp"
 
 #include <chrono>
+#include <limits>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -433,6 +434,28 @@ TEST(ScenarioValidator, AcceptsValidTwistStoppedAssertion)
   const auto result = ros2_fault_injection::validate_scenario(scenario);
   EXPECT_TRUE(result.ok());
   EXPECT_TRUE(result.errors.empty());
+}
+
+TEST(ScenarioValidator, RejectsTwistStoppedAssertionWhenCombinedDeadlineOverflows)
+{
+  auto scenario = valid_odom_scenario();
+
+  ros2_fault_injection::assertions::AssertionConfig assertion;
+  assertion.id = "overflowing_twist_stopped";
+  assertion.type = "twist_stopped";
+  assertion.topic = "/cmd_vel";
+  assertion.fault_id = "odom_bias";
+  assertion.trigger_within = std::numeric_limits<double>::max();
+  assertion.within = std::numeric_limits<double>::max();
+  assertion.duration = 1.0;
+  assertion.linear_tolerance = 0.01;
+  assertion.angular_tolerance = 0.01;
+  assertion.max_gap = 0.2;
+  scenario.assertions.push_back(assertion);
+
+  const auto result = ros2_fault_injection::validate_scenario(scenario);
+  ASSERT_EQ(result.errors.size(), 1u);
+  EXPECT_NE(result.errors.front().find("trigger_within + within"), std::string::npos);
 }
 
 TEST(ScenarioValidator, RejectsTwistStoppedAssertionWithInvalidTimingOrFault)

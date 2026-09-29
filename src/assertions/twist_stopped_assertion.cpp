@@ -7,6 +7,12 @@
 #include "ros2_fault_injection/assertions/twist_stopped_assertion.hpp"
 
 #include <cmath>
+#include <cstddef>
+
+namespace
+{
+constexpr std::size_t kMaxPendingMessages = 16384;
+}
 
 namespace ros2_fault_injection::assertions
 {
@@ -50,6 +56,18 @@ void TwistStoppedAssertion::observe_fault_event(
 
   fault_active_ = true;
   fault_activation_stamp_ = stamp;
+
+  const auto pending_messages = std::move(pending_messages_);
+  for (const auto & message : pending_messages) {
+    if (message.second < stamp) {
+      continue;
+    }
+
+    observe_message(message.first, message.second);
+    if (result_.state != AssertionState::Pending) {
+      break;
+    }
+  }
 }
 
 void TwistStoppedAssertion::observe_message(
@@ -60,6 +78,12 @@ void TwistStoppedAssertion::observe_message(
   }
 
   if (!fault_active_) {
+    if (pending_messages_.size() >= kMaxPendingMessages) {
+      fail("Received too many Twist commands while waiting for fault " + config_.fault_id +
+        " to activate; cannot safely verify its stop response");
+      return;
+    }
+    pending_messages_.emplace_back(message, stamp);
     return;
   }
 
@@ -101,8 +125,16 @@ void TwistStoppedAssertion::update(const rclcpp::Time & now)
   }
 
   if (!fault_active_) {
-    if ((now - start_time_).seconds() > config_.trigger_within.value()) {
-      fail("Timed out waiting for fault " + config_.fault_id + " to activate");
+    const double activation_and_response_window =
+      config_.trigger_within.value() + config_.within.value();
+    if (!std::isfinite(activation_and_response_window)) {
+      fail("The trigger_within and within deadlines for fault " + config_.fault_id +
+        " must have a finite sum");
+      return;
+    }
+    if ((now - start_time_).seconds() > activation_and_response_window) {
+      fail("Timed out waiting for fault " + config_.fault_id +
+        " to activate and produce a stop response");
     }
     return;
   }
@@ -156,5 +188,6 @@ void TwistStoppedAssertion::fail(const std::string & message)
 {
   result_.state = AssertionState::Failed;
   result_.message = message;
+  pending_messages_.clear();
 }
 }  // namespace ros2_fault_injection::assertions

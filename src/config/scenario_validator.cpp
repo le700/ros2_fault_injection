@@ -317,6 +317,14 @@ void validate_assertions(
         "assertion '" + assertion.id + "' within must be finite and greater than 0");
     }
 
+    if (assertion.trigger_within.has_value() && assertion.within.has_value() &&
+      std::isfinite(assertion.trigger_within.value()) && std::isfinite(assertion.within.value()) &&
+      !std::isfinite(assertion.trigger_within.value() + assertion.within.value()))
+    {
+      result.errors.push_back(
+        "assertion '" + assertion.id + "' trigger_within + within must be finite");
+    }
+
     if (!assertion.duration.has_value()) {
       result.errors.push_back("assertion '" + assertion.id + "' duration must be set");
     } else if (!std::isfinite(assertion.duration.value()) || assertion.duration.value() <= 0.0) {

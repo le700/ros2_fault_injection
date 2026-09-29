@@ -413,12 +413,14 @@ Common fields:
 | --- | --- | --- |
 | `topic` | string | `geometry_msgs/msg/Twist` command topic to observe. |
 | `fault_id` | string | Fault event whose activation starts the stop-response check. Must reference an existing fault ID. |
-| `trigger_within` | seconds | Deadline from assertion start for the fault to activate. |
+| `trigger_within` | seconds | Deadline from assertion start for the fault to activate. If no activation event is observed, the assertion waits until this deadline plus `within` before failing, so a timely activation event can still use its full stop-response window. |
 | `within` | seconds | Deadline after fault activation for the first zero command to arrive. |
 | `duration` | seconds | How long zero commands must continue to be observed. |
 | `linear_tolerance` | m/s | Maximum absolute value for each linear velocity component to count as zero. |
 | `angular_tolerance` | rad/s | Maximum absolute value for each angular velocity component to count as zero. |
 | `max_gap` | seconds | Maximum allowed gap between zero commands during the hold period. Must be less than `duration`. |
+
+For `twist_stopped`, `trigger_within + within` must also remain finite.
 
 Example:
 
@@ -456,6 +458,6 @@ assertions:
     max_gap: 0.2
 ```
 
-The `twist_stopped` assertion observes all six linear and angular velocity components. It passes only after a matching fault activates, a zero command arrives before `within` expires, and zero commands continue for `duration` without exceeding `max_gap`. Non-finite values, renewed motion, a missed deadline, or a gap that is too long fail the assertion. This verifies the command topic behavior; it does not prove that the robot's physical motion has stopped.
+The `twist_stopped` assertion observes all six linear and angular velocity components. Up to 16,384 Twist messages observed while waiting for the activation event are retained and evaluated only when their observation timestamps are at or after the event timestamp, including equal timestamps; exceeding this limit fails the assertion because the stop response can no longer be verified safely. It passes only after a matching fault activates, a zero command arrives before `within` expires, and zero commands continue for `duration` without exceeding `max_gap`. Non-finite values, renewed motion, a missed deadline, or a gap that is too long fail the assertion. This verifies the command topic behavior; it does not prove that the robot's physical motion has stopped.
 
 The validator rejects duplicate assertion IDs, unsupported assertion types, unknown fault IDs, unsupported states, missing topic rate fields, invalid timing values, and non-positive `min_hz` or `window` values. Assertion state changes are published on `/fault_injection/assertion_events`; the current scenario summary is published on `/fault_injection/scenario_status`.
