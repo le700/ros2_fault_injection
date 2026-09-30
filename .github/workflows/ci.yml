@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: src/ros2_fault_injection
-          ref: 6c098ef697e3fa01ad9c0469b1ec000a0a703358
+          ref: 7d922a4543be0bd898d027b9bfcd371fca6d7174
 
       - name: Setup ROS 2 apt source
         shell: bash
