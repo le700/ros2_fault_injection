@@ -298,7 +298,8 @@ void validate_assertions(
       result.errors.push_back("assertion '" + assertion.id + "' fault_id must not be empty");
     } else if (!fault_exists(scenario, assertion.fault_id)) {
       result.errors.push_back(
-        "assertion '" + assertion.id + "' references unknown fault_id '" + assertion.fault_id + "'");
+        "assertion '" + assertion.id + "' references unknown fault_id '" + assertion.fault_id +
+          "'");
     }
 
     if (!assertion.trigger_within.has_value()) {
