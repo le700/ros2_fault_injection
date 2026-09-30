@@ -7,10 +7,9 @@
 name: CI
 
 on:
-  pull_request:
   push:
     branches:
-      - main
+      - verify-jazzy-stop-response
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,12 +19,14 @@ jobs:
   jazzy:
     name: ROS 2 Jazzy
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           path: src/ros2_fault_injection
+          ref: 6c098ef697e3fa01ad9c0469b1ec000a0a703358
 
       - name: Setup ROS 2 apt source
         shell: bash
