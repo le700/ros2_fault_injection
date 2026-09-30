@@ -289,7 +289,7 @@ TEST_F(FaultAssertionRunnerTest, UsesFaultEventStampForStopResponseDeadline)
   std::this_thread::sleep_for(700ms);
 
   msg::FaultEvent event;
-  event.stamp = (assertion_start + rclcpp::Duration::from_seconds(0.1)).to_msg();
+  event.stamp = assertion_start + rclcpp::Duration::from_seconds(0.1);
   event.fault_id = "drop_cmd_vel";
   event.state = "active";
   event_publisher->publish(event);
