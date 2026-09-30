@@ -216,7 +216,9 @@ injector:
 
 TEST(ScenarioConfig, ParsesTwistStoppedAssertion)
 {
-  const auto path = write_temp_yaml(R"(
+  const auto path =
+    write_temp_yaml(
+    R"(
 injector:
   id: twist
   type: twist

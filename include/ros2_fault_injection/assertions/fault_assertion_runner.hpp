@@ -50,7 +50,7 @@ private:
   rclcpp::Subscription<msg::FaultEvent>::SharedPtr fault_event_subscription_;
   std::vector<std::shared_ptr<rclcpp::GenericSubscription>> topic_hz_subscriptions_;
   std::vector<rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr>
-    twist_stopped_subscriptions_;
+  twist_stopped_subscriptions_;
   rclcpp::TimerBase::SharedPtr timer_;
   rclcpp::Publisher<msg::AssertionEvent>::SharedPtr assertion_event_publisher_;
   ScenarioMonitor scenario_monitor_;
