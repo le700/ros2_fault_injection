@@ -54,6 +54,15 @@ msg::FaultEvent activate_fault()
   event.state = "active";
   return event;
 }
+
+void observe_hold_before_completion(TwistStoppedAssertion & assertion)
+{
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 250000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 400000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 550000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 700000000));
+}
 }  // namespace
 
 TEST(TwistStoppedAssertion, StartsPending)
@@ -78,6 +87,81 @@ TEST(TwistStoppedAssertion, PassesAfterZeroCommandIsHeldForDuration)
   assertion.update(rclcpp::Time(0, 710000000));
 
   EXPECT_EQ(assertion.result().state, AssertionState::Passed);
+}
+
+TEST(TwistStoppedAssertion, AllowsMotionAfterHoldCompletesBeforeTimerUpdate)
+{
+  TwistStoppedAssertion assertion(make_twist_stopped_assertion(), rclcpp::Time(0, 0));
+  observe_hold_before_completion(assertion);
+  ASSERT_EQ(assertion.result().state, AssertionState::Pending);
+
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 760000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Passed);
+}
+
+TEST(TwistStoppedAssertion, AllowsMotionExactlyWhenHoldCompletes)
+{
+  TwistStoppedAssertion assertion(make_twist_stopped_assertion(), rclcpp::Time(0, 0));
+  observe_hold_before_completion(assertion);
+
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 750000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Passed);
+}
+
+TEST(TwistStoppedAssertion, LateTimerIgnoresGapThatOnlyExceedsLimitAfterHold)
+{
+  TwistStoppedAssertion assertion(make_twist_stopped_assertion(), rclcpp::Time(0, 0));
+  observe_hold_before_completion(assertion);
+
+  assertion.update(rclcpp::Time(1, 200000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Passed);
+}
+
+TEST(TwistStoppedAssertion, LateZeroCommandIgnoresGapThatOnlyExceedsLimitAfterHold)
+{
+  TwistStoppedAssertion assertion(make_twist_stopped_assertion(), rclcpp::Time(0, 0));
+  observe_hold_before_completion(assertion);
+
+  assertion.observe_message(stopped_command(), rclcpp::Time(1, 200000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Passed);
+}
+
+TEST(TwistStoppedAssertion, RejectsMotionJustBeforeHoldCompletes)
+{
+  TwistStoppedAssertion assertion(make_twist_stopped_assertion(), rclcpp::Time(0, 0));
+  observe_hold_before_completion(assertion);
+
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 740000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Failed);
+}
+
+TEST(TwistStoppedAssertion, LateTimerStillRejectsGapExceededDuringHold)
+{
+  TwistStoppedAssertion assertion(make_twist_stopped_assertion(), rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 250000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 400000000));
+
+  assertion.update(rclcpp::Time(1, 200000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Failed);
+}
+
+TEST(TwistStoppedAssertion, LateMotionStillRejectsGapExceededDuringHold)
+{
+  TwistStoppedAssertion assertion(make_twist_stopped_assertion(), rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 100000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 250000000));
+  assertion.observe_message(stopped_command(), rclcpp::Time(0, 400000000));
+
+  assertion.observe_message(moving_command(), rclcpp::Time(0, 760000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Failed);
 }
 
 TEST(TwistStoppedAssertion, AppliesSeparateLinearAndAngularTolerancesToEveryAxis)
