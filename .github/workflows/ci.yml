@@ -9,7 +9,7 @@ name: CI
 on:
   push:
     branches:
-      - verify-jazzy-stop-response
+      - verify-jazzy-hold-boundary
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -26,7 +26,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: src/ros2_fault_injection
-          ref: 7d922a4543be0bd898d027b9bfcd371fca6d7174
+          ref: bbb6aea87461171be9c3e684423fef8e820f30e6
+          fetch-depth: 0
 
       - name: Setup ROS 2 apt source
         shell: bash
@@ -55,10 +56,32 @@ jobs:
           rosdep update
           rosdep install --from-paths src --ignore-src --rosdistro jazzy --dependency-types buildtool --dependency-types build --dependency-types build_export --dependency-types exec --dependency-types test -r -y
 
-      - name: Build
+      - name: Prove regression against old source and build repaired source
         shell: bash
         run: |
           source /opt/ros/jazzy/setup.bash
+          assertion_file=src/ros2_fault_injection/src/assertions/twist_stopped_assertion.cpp
+          cp "$assertion_file" /tmp/twist-stopped-repaired.cpp
+          trap 'cp /tmp/twist-stopped-repaired.cpp "$assertion_file"' EXIT
+          git -C src/ros2_fault_injection show 7d922a4543be0bd898d027b9bfcd371fca6d7174:src/assertions/twist_stopped_assertion.cpp > "$assertion_file"
+          colcon build --symlink-install --packages-select ros2_fault_injection --event-handlers console_direct+
+          source install/setup.bash
+          set +e
+          build/ros2_fault_injection/test_twist_stopped_assertion --gtest_filter='TwistStoppedAssertion.AllowsMotion*:TwistStoppedAssertion.Late*:TwistStoppedAssertion.RejectsMotion*:TwistStoppedAssertion.ExactMaxGap*' --gtest_output=xml:/tmp/hold-baseline.xml
+          baseline_result=$?
+          set -e
+          test "$baseline_result" -eq 1
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse('/tmp/hold-baseline.xml').getroot()
+          expected = {'AllowsMotionAfterHoldCompletesBeforeTimerUpdate', 'AllowsMotionExactlyWhenHoldCompletes', 'LateTimerIgnoresGapThatOnlyExceedsLimitAfterHold', 'LateZeroCommandIgnoresGapThatOnlyExceedsLimitAfterHold'}
+          failed = {case.attrib['name'] for case in root.iter('testcase') if case.find('failure') is not None}
+          assert int(root.attrib['tests']) == 9, root.attrib
+          assert failed == expected, failed
+          print('Confirmed exactly four intended baseline failures; five negative/boundary controls pass.')
+          PY
+          cp /tmp/twist-stopped-repaired.cpp "$assertion_file"
+          git -C src/ros2_fault_injection diff --exit-code
           colcon build --symlink-install --packages-select ros2_fault_injection --event-handlers console_direct+
 
       - name: Test
@@ -66,5 +89,14 @@ jobs:
         run: |
           source /opt/ros/jazzy/setup.bash
           source install/setup.bash
-          colcon test --packages-select ros2_fault_injection --event-handlers console_direct+
+          colcon test --packages-select ros2_fault_injection --return-code-on-test-failure --event-handlers console_direct+
           colcon test-result --verbose
+
+      - name: Save regression and full-test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jazzy-hold-boundary-results
+          path: |
+            /tmp/hold-baseline.xml
+            build/ros2_fault_injection/test_results/
