@@ -5,6 +5,7 @@
 // https://opensource.org/licenses/MIT.
 
 #include <cstddef>
+#include <initializer_list>
 #include <limits>
 
 #include <gtest/gtest.h>
@@ -162,6 +163,34 @@ TEST(TwistStoppedAssertion, LateMotionStillRejectsGapExceededDuringHold)
   assertion.observe_message(moving_command(), rclcpp::Time(0, 760000000));
 
   EXPECT_EQ(assertion.result().state, AssertionState::Failed);
+}
+
+TEST(TwistStoppedAssertion, ExactMaxGapRemainsValidDuringLongerHold)
+{
+  auto config = make_twist_stopped_assertion();
+  config.duration = 1.0;
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 0));
+  for (const auto stamp : {100000000, 300000000, 500000000, 700000000, 900000000}) {
+    assertion.observe_message(stopped_command(), rclcpp::Time(0, stamp));
+  }
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Pending);
+}
+
+TEST(TwistStoppedAssertion, ExactMaxGapRemainsValidAtDecimalHoldDeadline)
+{
+  auto config = make_twist_stopped_assertion();
+  config.duration = 0.8;
+  TwistStoppedAssertion assertion(config, rclcpp::Time(0, 0));
+  assertion.observe_fault_event(activate_fault(), rclcpp::Time(0, 0));
+  for (const auto stamp : {100000000, 300000000, 500000000, 700000000}) {
+    assertion.observe_message(stopped_command(), rclcpp::Time(0, stamp));
+  }
+
+  assertion.update(rclcpp::Time(0, 900000000));
+
+  EXPECT_EQ(assertion.result().state, AssertionState::Passed);
 }
 
 TEST(TwistStoppedAssertion, AppliesSeparateLinearAndAngularTolerancesToEveryAxis)

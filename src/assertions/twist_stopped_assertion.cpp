@@ -9,6 +9,8 @@
 #include <cmath>
 #include <cstddef>
 
+#include "rclcpp/duration.hpp"
+
 namespace
 {
 constexpr std::size_t kMaxPendingMessages = 16384;
@@ -87,6 +89,13 @@ void TwistStoppedAssertion::observe_message(
     return;
   }
 
+  if (first_zero_stamp_) {
+    update(stamp);
+    if (result_.state != AssertionState::Pending) {
+      return;
+    }
+  }
+
   if (!is_finite(message)) {
     fail("Received a non-finite Twist command on " + config_.topic + " after fault " +
       config_.fault_id + " activated");
@@ -147,13 +156,18 @@ void TwistStoppedAssertion::update(const rclcpp::Time & now)
     return;
   }
 
-  const double gap_seconds = (now - last_zero_stamp_.value()).seconds();
+  const double held_seconds = (now - first_zero_stamp_.value()).seconds();
+  // A delayed callback must only validate continuity up to the hold deadline.
+  const double gap_seconds = held_seconds >= config_.duration.value() ?
+    (rclcpp::Duration::from_seconds(config_.duration.value()) -
+    (last_zero_stamp_.value() - first_zero_stamp_.value())).seconds() :
+    (now - last_zero_stamp_.value()).seconds();
   if (gap_seconds > config_.max_gap.value()) {
     fail("Zero Twist commands on " + config_.topic + " stopped arriving within max_gap");
     return;
   }
 
-  if ((now - first_zero_stamp_.value()).seconds() >= config_.duration.value()) {
+  if (held_seconds >= config_.duration.value()) {
     result_.state = AssertionState::Passed;
     result_.message = "Observed zero Twist commands on " + config_.topic + " for " +
       std::to_string(config_.duration.value()) + " seconds after fault " + config_.fault_id;
